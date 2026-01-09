@@ -10,12 +10,6 @@ public sealed class WalletOptionsBuilder
         return this;
     }
 
-    public WalletOptionsBuilder UseXpub(string xpub) 
-    {
-        _wallet.Xpub = xpub;
-        return this;
-    }
-
     public WalletOptionsBuilder SetMasterAddress(string address)
     {
         _wallet.MasterAddress = address;

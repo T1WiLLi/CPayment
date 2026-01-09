@@ -1,11 +1,12 @@
-﻿using CPayment.Utils;
+﻿using CPayment.Interfaces;
+using CPayment.Utils;
 
 namespace CPayment.Configuration;
 
 public sealed class CPaymentOptions
 {
     public Network Network { get; internal set; }
-    public object? Provider { get; internal set; } // TODO: Change to IProvider when available
+    public IProvider? Provider { get; internal set; } // TODO: Change to IProvider when available
 
     public int DefaultConfirmations { get; internal set; } = 1;
 

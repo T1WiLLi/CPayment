@@ -10,4 +10,8 @@
     <Folder Include="Bitcoin\" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="NBitcoin" Version="9.0.4" />
+  </ItemGroup>
+
 </Project>

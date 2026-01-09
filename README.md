@@ -1,3 +1,5 @@
+![Logo](./Logo.png)
+
 # CPayment - Open Source
 
 **CPayment** is a lightweight, secure, and extensible library designed to simplify **crypto-based payments** in modern applications.
@@ -12,7 +14,7 @@ CPayment is built with the following principles in mind:
     A minimal API surface that is easy to understand and adopt.
     
 -   **Explicit and predictable behavior**  
-    No hidden magic, no implicit global state, and no silent failures — especially critical for payment flows.
+    No hidden magic, no implicit global state, and no silent failures especially critical for payment flows.
     
 -   **Security by design**  
     Clear responsibility boundaries, strict configuration validation, and explicit error handling.

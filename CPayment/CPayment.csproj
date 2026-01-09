@@ -8,10 +8,10 @@
 
   <ItemGroup>
     <Folder Include="Bitcoin\" />
-    <Folder Include="Interfaces\" />
-    <Folder Include="Services\" />
-    <Folder Include="Providers\" />
-    <Folder Include="Payments\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NBitcoin" Version="9.0.4" />
   </ItemGroup>
 
 </Project>

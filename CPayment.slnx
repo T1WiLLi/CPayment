@@ -1,4 +1,4 @@
 <Solution>
-  <Project Path="Core/CPayment.csproj" />
+  <Project Path="CPayment/CPayment.csproj" />
   <Project Path="Tools/Tools.csproj" Id="57304529-d193-4c21-a2a2-83c5cae96d2e" />
 </Solution>

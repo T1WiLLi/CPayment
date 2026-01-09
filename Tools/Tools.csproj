@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Core\CPayment.csproj" />
+    <ProjectReference Include="..\CPayment\CPayment.csproj" />
   </ItemGroup>
 
 </Project>

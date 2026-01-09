@@ -8,10 +8,7 @@
 
   <ItemGroup>
     <Folder Include="Bitcoin\" />
-    <Folder Include="Interfaces\" />
-    <Folder Include="Services\" />
     <Folder Include="Providers\" />
-    <Folder Include="Payments\" />
   </ItemGroup>
 
 </Project>

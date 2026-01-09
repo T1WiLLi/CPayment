@@ -6,6 +6,7 @@ namespace CPayment;
 
 public static class CPayment
 {
+    public const string Version = "26.01.0";
     private static CPaymentOptions? _options;
 
     public static void Configure(Action<CPaymentOptionsBuilder> configure)

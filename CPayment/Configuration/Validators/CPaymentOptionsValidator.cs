@@ -71,7 +71,7 @@ public static class CPaymentOptionsValidator
                 throw new CPaymentConfigurationException($"{nameof(CPaymentOptionsValidator)}.{nameof(ValidateWallet)} => Auto-sweep MinConfirmations must be >= 0.");
             }
 
-            if (wallet.AutoSweep.MinUtxoAmount <= 0)
+            if (wallet.AutoSweep.MinSweepAmount <= 0)
             {
                 throw new CPaymentConfigurationException($"{nameof(CPaymentOptionsValidator)}.{nameof(ValidateWallet)} => Auto-sweep MinSweepAmount must be greater than zero.");
             }

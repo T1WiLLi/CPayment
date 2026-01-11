@@ -9,6 +9,8 @@ namespace CPayment.Services
 {
     internal static class AddressDerivationService
     {
+        internal sealed record DerivedDeposit(Key PrivateKey, string Address, Network Network);
+
         /// <summary>
         /// Derives a unique deposit address based on global config + payment metadata.
         /// Uses BIP84 (native segwit) path: m/84'/coin_type'/0'/0/index
@@ -16,25 +18,30 @@ namespace CPayment.Services
         /// </summary>
         public static string DeriveDepositAddress(CPaymentOptions options, PaymentMetadata metadata)
         {
+            return DeriveDeposit(options, metadata).Address;
+        }
+
+        public static DerivedDeposit DeriveDeposit(CPaymentOptions options, PaymentMetadata metadata)
+        {
             ArgumentNullException.ThrowIfNull(options);
             ArgumentNullException.ThrowIfNull(metadata);
 
             if (options.Wallet is null)
             {
                 throw new CPaymentConfigurationException(
-                    $"{nameof(AddressDerivationService)}.{nameof(DeriveDepositAddress)} => Wallet is not configured.");
+                    $"{nameof(AddressDerivationService)}.{nameof(DeriveDeposit)} => Wallet is not configured.");
             }
 
             if (string.IsNullOrWhiteSpace(options.Wallet.Mnemonic))
             {
                 throw new CPaymentConfigurationException(
-                    $"{nameof(AddressDerivationService)}.{nameof(DeriveDepositAddress)} => Wallet mnemonic is not configured.");
+                    $"{nameof(AddressDerivationService)}.{nameof(DeriveDeposit)} => Wallet mnemonic is not configured.");
             }
 
             if (string.IsNullOrWhiteSpace(options.DerivationSalt))
             {
                 throw new CPaymentConfigurationException(
-                    $"{nameof(AddressDerivationService)}.{nameof(DeriveDepositAddress)} => Derivation salt is not configured.");
+                    $"{nameof(AddressDerivationService)}.{nameof(DeriveDeposit)} => Derivation salt is not configured.");
             }
 
             EnsureRequiredKeys(options, metadata);
@@ -44,7 +51,7 @@ namespace CPayment.Services
                 Utils.Network.Main => Network.Main,
                 Utils.Network.Test => Network.TestNet,
                 _ => throw new NotSupportedException(
-                        $"{nameof(AddressDerivationService)}.{nameof(DeriveDepositAddress)} => Unsupported network '{options.Network}'.")
+                        $"{nameof(AddressDerivationService)}.{nameof(DeriveDeposit)} => Unsupported network '{options.Network}'.")
             };
 
             var canonical = BuildCanonicalMetadata(options.RequiredDerivationKeys, metadata);
@@ -67,9 +74,10 @@ namespace CPayment.Services
 
             var address = key.PrivateKey
                 .PubKey
-                .GetAddress(ScriptPubKeyType.Segwit, nbitcoinNetwork);
+                .GetAddress(ScriptPubKeyType.Segwit, nbitcoinNetwork)
+                .ToString();
 
-            return address.ToString();
+            return new DerivedDeposit(key.PrivateKey, address, nbitcoinNetwork);
         }
 
         private static void EnsureRequiredKeys(CPaymentOptions options, PaymentMetadata metadata)

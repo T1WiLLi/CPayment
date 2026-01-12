@@ -159,6 +159,9 @@ public sealed class Payment
         await _provider.BroadcastAsync(tx.ToHex(), cancellationToken).ConfigureAwait(false);
     }
 
+    public Task<bool> IsAlreadySweptAsync(CancellationToken cancellationToken = default) =>
+        SweepDetectionService.WasSweptAsync(PaymentTo, _provider, cancellationToken);
+
     private async Task<PaymentVerificationResult> VerifyInternalAsync(
         int minConfirmations,
         CancellationToken cancellationToken)

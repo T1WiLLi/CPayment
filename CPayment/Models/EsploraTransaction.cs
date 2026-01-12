@@ -10,6 +10,9 @@ public sealed class EsploraTransaction
     [JsonPropertyName("status")]
     public EsploraTxStatus Status { get; set; } = new();
 
+    [JsonPropertyName("vin")]
+    public List<EsploraVin> Vin { get; set; } = [];
+
     [JsonPropertyName("vout")]
     public List<EsploraVout> Vout { get; set; } = [];
 }
@@ -36,4 +39,25 @@ public sealed class EsploraVout
 
     [JsonPropertyName("scriptpubkey_address")]
     public string? ScriptPubKeyAddress { get; set; }
+}
+
+public sealed class EsploraVin
+{
+    [JsonPropertyName("txid")]
+    public string TxId { get; set; } = string.Empty;
+
+    [JsonPropertyName("vout")]
+    public int Vout { get; set; }
+
+    [JsonPropertyName("prevout")]
+    public EsploraPrevout Prevout { get; set; } = new();
+}
+
+public sealed class EsploraPrevout
+{
+    [JsonPropertyName("scriptpubkey_address")]
+    public string? ScriptPubKeyAddress { get; set; }
+
+    [JsonPropertyName("value")]
+    public long ValueSats { get; set; }
 }

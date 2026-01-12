@@ -2,9 +2,9 @@
 using CPayment.Configuration.Builder;
 using CPayment.Configuration.Validators;
 
-namespace CPayment;
+namespace CPayment.Public;
 
-public static class CPayment
+public static class CPaymentExtensions
 {
     public const string Version = "26.01.0";
     private static CPaymentOptions? _options;

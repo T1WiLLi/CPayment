@@ -2,10 +2,12 @@ using CPayment.Configuration;
 using CPayment.Exceptions;
 using CPayment.Interfaces;
 using CPayment.Models;
+using CPayment.Public;
 using CPayment.Services;
 using CPayment.Utils;
 using NBitcoin;
 using NBitcoin.Policy;
+using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 
@@ -37,7 +39,7 @@ public sealed class Payment
         Currency = currency;
         Metadata = metadata;
 
-        _options = CPayment.Options;
+        _options = CPaymentExtensions.Options;
         _provider = _options.Provider ?? throw new CPaymentConfigurationException($"{nameof(Payment)} => Provider is not configured.");
         _provider.Configure(_options.Network);
 
@@ -159,8 +161,7 @@ public sealed class Payment
                 new TxOut(Money.Satoshis(x.Utxo.ValueSats), depositScript)))
             .ToArray();
 
-        var satPerVbyte = await GetFeeRateAsync(sweep.FeePolicy).ConfigureAwait(false);
-        var feeRate = ToFeeRate(satPerVbyte);
+        var feeRate = await GetFeeRateAsync(sweep.FeePolicy, cancellationToken).ConfigureAwait(false);
 
         var builder = _nbitcoinNetwork.CreateTransactionBuilder();
         builder.OptInRBF = sweep.EnableRbf;
@@ -312,34 +313,36 @@ public sealed class Payment
         };
     }
 
-    private static Task<double> GetFeeRateAsync(FeePolicy policy)
+    private async Task<FeeRate> GetFeeRateAsync(FeePolicy policy, CancellationToken cancellationToken)
     {
-        // sat/vbyte mapping (placeholder until you wire a real estimator)
-        var rate = policy switch
+        var url = $"{GetBaseEsploraUrl()}/fee-estimates";
+
+        Dictionary<string, double>? estimates;
+        try
         {
-            FeePolicy.Low => 1.0,
-            FeePolicy.Medium => 5.0,
-            FeePolicy.High => 10.0,
-            _ => throw new NotSupportedException($"{nameof(Payment)} => Unsupported fee policy '{policy}'.")
+            estimates = await HttpClientService.Instance
+                .GetFromJsonAsync<Dictionary<string, double>>(url, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            estimates = null;
+        }
+
+        double targetVbyte = policy switch
+        {
+            FeePolicy.High => TryGet(estimates, "2") ?? 10d,
+            FeePolicy.Medium => TryGet(estimates, "6") ?? 5d,
+            _ => TryGet(estimates, "12") ?? 1d
         };
 
-        return Task.FromResult(rate);
-    }
-
-    private static FeeRate ToFeeRate(double satPerVbyte)
-    {
-        if (double.IsNaN(satPerVbyte) || double.IsInfinity(satPerVbyte) || satPerVbyte <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(satPerVbyte), "Fee rate must be > 0 sat/vbyte.");
-        }
-
-        var satPerKvb = (long)Math.Ceiling(satPerVbyte * 1000.0);
-        if (satPerKvb <= 0)
-        {
-            satPerKvb = 1;
-        }
+        var satPerKvb = (long)Math.Ceiling(targetVbyte * 1000d);
+        if (satPerKvb < 1) satPerKvb = 1;
 
         return new FeeRate(Money.Satoshis(satPerKvb));
+
+        static double? TryGet(Dictionary<string, double>? dict, string key) =>
+            dict is not null && dict.TryGetValue(key, out var v) ? v : null;
     }
 
     private static string FormatPolicyErrors(TransactionPolicyError[]? errors)

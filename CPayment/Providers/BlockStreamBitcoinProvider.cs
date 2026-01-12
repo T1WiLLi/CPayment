@@ -2,7 +2,9 @@
 using CPayment.Models;
 using CPayment.Services;
 using CPayment.Utils;
+using System.Net.Http.Json;
 using System.Text.Json;
+using FeeRate = NBitcoin.FeeRate;
 
 namespace CPayment.Providers
 {
@@ -77,6 +79,38 @@ namespace CPayment.Providers
             return tx is null
                 ? throw new InvalidOperationException($"{nameof(BlockStreamBitcoinProvider)}.{nameof(GetTransactionAsync)} => Null transaction response for tx '{txId}'.")
                 : tx;
+        }
+
+        public async Task<FeeRate> GetSweepFeeRateAsync(FeePolicy policy, CancellationToken cancellationToken = default)
+        {
+            var url = $"{_baseUrl}/fee-estimates";
+
+            Dictionary<string, double>? estimates;
+            try
+            {
+                estimates = await HttpClientService.Instance
+                    .GetFromJsonAsync<Dictionary<string, double>>(url, cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch
+            {
+                estimates = null;
+            }
+
+            double targetVbyte = policy switch
+            {
+                FeePolicy.High => TryGet(estimates, "2") ?? 10d,
+                FeePolicy.Medium => TryGet(estimates, "6") ?? 5d,
+                _ => TryGet(estimates, "12") ?? 1d
+            };
+
+            var satPerKvb = (long)Math.Ceiling(targetVbyte * 1000d);
+            if (satPerKvb < 1) satPerKvb = 1;
+
+            return new FeeRate(NBitcoin.Money.Satoshis(satPerKvb));
+
+            static double? TryGet(Dictionary<string, double>? dict, string key) =>
+                dict is not null && dict.TryGetValue(key, out var v) ? v : null;
         }
     }
 }

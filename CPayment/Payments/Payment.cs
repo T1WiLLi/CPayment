@@ -161,7 +161,7 @@ public sealed class Payment
                 new TxOut(Money.Satoshis(x.Utxo.ValueSats), depositScript)))
             .ToArray();
 
-        var feeRate = await GetFeeRateAsync(sweep.FeePolicy, cancellationToken).ConfigureAwait(false);
+        var feeRate = await _provider.GetSweepFeeRateAsync(sweep.FeePolicy, cancellationToken).ConfigureAwait(false);
 
         var builder = _nbitcoinNetwork.CreateTransactionBuilder();
         builder.OptInRBF = sweep.EnableRbf;

@@ -5,6 +5,7 @@ using CPayment.Utils;
 using System.Net.Http.Json;
 using System.Text.Json;
 using FeeRate = NBitcoin.FeeRate;
+using System.Text;
 
 namespace CPayment.Providers
 {
@@ -79,6 +80,37 @@ namespace CPayment.Providers
             return tx is null
                 ? throw new InvalidOperationException($"{nameof(BlockStreamBitcoinProvider)}.{nameof(GetTransactionAsync)} => Null transaction response for tx '{txId}'.")
                 : tx;
+        }
+
+        public async Task<IReadOnlyList<EsploraUtxo>> GetUtxosAsync(string address, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(address))
+            {
+                throw new ArgumentException($"{nameof(BlockStreamBitcoinProvider)}.{nameof(GetUtxosAsync)} => Address must be provided.", nameof(address));
+            }
+
+            var url = $"{_baseUrl}/address/{Uri.EscapeDataString(address)}/utxo";
+
+            using var response = await HttpClientService.Instance.GetAsync(url, cancellationToken).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            var utxos = await JsonSerializer.DeserializeAsync<List<EsploraUtxo>>(stream, JsonOptions, cancellationToken).ConfigureAwait(false);
+            return utxos ?? [];
+        }
+
+        public async Task BroadcastAsync(string txHex, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(txHex))
+            {
+                throw new ArgumentException($"{nameof(BlockStreamBitcoinProvider)}.{nameof(BroadcastAsync)} => Tx hex must be provided.", nameof(txHex));
+            }
+
+            var url = $"{_baseUrl}/tx";
+
+            using var content = new StringContent(txHex, Encoding.UTF8, "text/plain");
+            using var response = await HttpClientService.Instance.PostAsync(url, content, cancellationToken).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
         }
 
         public async Task<FeeRate> GetSweepFeeRateAsync(FeePolicy policy, CancellationToken cancellationToken = default)

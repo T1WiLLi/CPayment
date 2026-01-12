@@ -120,7 +120,7 @@ public sealed class Payment
             throw new CPaymentConfigurationException($"{nameof(Payment)}.{nameof(SweepAsync)} => Master address is not configured.");
         }
 
-        var utxos = await FetchUtxosAsync(PaymentTo, cancellationToken).ConfigureAwait(false);
+        var utxos = await _provider.GetUtxosAsync(PaymentTo, cancellationToken).ConfigureAwait(false);
         if (utxos.Count == 0)
         {
             return;
@@ -189,7 +189,7 @@ public sealed class Payment
             return;
         }
 
-        await BroadcastAsync(tx.ToHex(), cancellationToken).ConfigureAwait(false);
+        await _provider.BroadcastAsync(tx.ToHex(), cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<PaymentVerificationResult> VerifyInternalAsync(
@@ -278,29 +278,6 @@ public sealed class Payment
         }
 
         return CalculateConfirmations(tx.Status.BlockHeight.Value, tipHeight);
-    }
-
-    private async Task<IReadOnlyList<EsploraUtxo>> FetchUtxosAsync(string address, CancellationToken cancellationToken)
-    {
-        var baseUrl = GetBaseEsploraUrl();
-        var url = $"{baseUrl}/address/{Uri.EscapeDataString(address)}/utxo";
-
-        using var response = await HttpClientService.Instance.GetAsync(url, cancellationToken).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
-
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        var utxos = await JsonSerializer.DeserializeAsync<List<EsploraUtxo>>(stream, JsonOptions, cancellationToken).ConfigureAwait(false);
-        return utxos ?? [];
-    }
-
-    private async Task BroadcastAsync(string txHex, CancellationToken cancellationToken)
-    {
-        var baseUrl = GetBaseEsploraUrl();
-        var url = $"{baseUrl}/tx";
-
-        using var content = new StringContent(txHex, Encoding.UTF8, "text/plain");
-        using var response = await HttpClientService.Instance.PostAsync(url, content, cancellationToken).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
     }
 
     private string GetBaseEsploraUrl()

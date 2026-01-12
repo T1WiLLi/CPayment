@@ -17,4 +17,8 @@ public interface IProvider
     Task<EsploraTransaction> GetTransactionAsync(string txId, CancellationToken cancellationToken = default);
 
     Task<FeeRate> GetSweepFeeRateAsync(FeePolicy policy, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<EsploraUtxo>> GetUtxosAsync(string address, CancellationToken cancellationToken = default);
+
+    Task BroadcastAsync(string txHex, CancellationToken cancellationToken = default);
 }

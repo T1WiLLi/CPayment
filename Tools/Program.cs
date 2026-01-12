@@ -25,7 +25,7 @@ internal static class Program
         Console.WriteLine($"Server master address (sweep target): {ServerMasterAddress}");
         Console.WriteLine($"Client funding address (ask faucet here): {ClientFundingAddress}");
 
-        var payment = new Payment(
+        var payment = PaymentFactory.Create(
             amount: PaymentConverter.Convert(9.99m, PaymentSupportedFiat.CAD, PaymentType.BTC), // adjust as needed
             currency: PaymentType.BTC,
             metadata: PaymentMetadata.Create(

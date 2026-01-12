@@ -25,11 +25,6 @@ public sealed class Payment
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(amount);
         ArgumentNullException.ThrowIfNull(metadata);
 
-        if (currency != PaymentType.BTC)
-        {
-            throw new NotSupportedException($"{nameof(Payment)} => Payment type '{currency}' is not supported yet.");
-        }
-
         Amount = amount;
         Currency = currency;
         Metadata = metadata;

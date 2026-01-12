@@ -44,7 +44,7 @@ public class Program
 
 
 		// Initialize a payment
-		var payment = new Payment(
+		var payment = PaymentFactory.Create(
 			amount: 0.00001m, (Or user can do a PaymentConverter.Convert(12.32, PaymentConverter.USD); // Amount in BTC
 			currency: PaymentType.BTC,
 			metadata: PaymentMetadata.Create(

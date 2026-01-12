@@ -1,7 +1,7 @@
-using static CPayment.CPayment;
 using CPayment.Configuration;
 using CPayment.Payments;
 using CPayment.Providers;
+using CPayment.Public;
 using CPayment.Utils;
 
 namespace Tools;
@@ -25,7 +25,7 @@ internal static class Program
         Console.WriteLine($"Server master address (sweep target): {ServerMasterAddress}");
         Console.WriteLine($"Client funding address (ask faucet here): {ClientFundingAddress}");
 
-        var payment = new Payment(
+        var payment = PaymentFactory.Create(
             amount: PaymentConverter.Convert(9.99m, PaymentSupportedFiat.CAD, PaymentType.BTC), // adjust as needed
             currency: PaymentType.BTC,
             metadata: PaymentMetadata.Create(
@@ -81,7 +81,7 @@ internal static class Program
 
     private static void ConfigureCPayment()
     {
-        Configure(cfg =>
+        CPaymentExtensions.Configure(cfg =>
         {
             cfg.UseNetwork(Network.Test);
             cfg.UseProvider(new BlockStreamBitcoinProvider());
@@ -96,7 +96,7 @@ internal static class Program
                 wallet.ConfigureSweep(new AutoSweepOptions
                 {
                     MinConfirmations = 1,
-                    FeePolicy = FeePolicy.Low,
+                    FeePolicy = FeePolicy.High,
                     EnableRbf = true,
                     MinSweepAmount = 0.000001m
                 });

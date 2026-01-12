@@ -2,12 +2,10 @@ using CPayment.Configuration;
 using CPayment.Exceptions;
 using CPayment.Interfaces;
 using CPayment.Models;
+using CPayment.Public;
 using CPayment.Services;
 using CPayment.Utils;
 using NBitcoin;
-using NBitcoin.Policy;
-using System.Text;
-using System.Text.Json;
 
 namespace CPayment.Payments;
 
@@ -15,29 +13,23 @@ public sealed class Payment
 {
     private const decimal SatoshisPerBtc = 100_000_000m;
 
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-
     private readonly long _amountSatoshis;
     private readonly CPaymentOptions _options;
     private readonly IProvider _provider;
     private readonly Key _depositKey;
     private readonly NBitcoin.Network _nbitcoinNetwork;
+    private readonly ISweepBuilder _sweepBuilder;
 
     public Payment(decimal amount, PaymentType currency, PaymentMetadata metadata)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(amount);
         ArgumentNullException.ThrowIfNull(metadata);
 
-        if (currency != PaymentType.BTC)
-        {
-            throw new NotSupportedException($"{nameof(Payment)} => Payment type '{currency}' is not supported yet.");
-        }
-
         Amount = amount;
         Currency = currency;
         Metadata = metadata;
 
-        _options = CPayment.Options;
+        _options = CPaymentExtensions.Options;
         _provider = _options.Provider ?? throw new CPaymentConfigurationException($"{nameof(Payment)} => Provider is not configured.");
         _provider.Configure(_options.Network);
 
@@ -46,6 +38,7 @@ public sealed class Payment
         var derived = AddressDerivationService.DeriveDeposit(_options, metadata);
         _depositKey = derived.PrivateKey;
         _nbitcoinNetwork = derived.Network;
+        _sweepBuilder = new BitcoinSweepBuilder(_nbitcoinNetwork);
         PaymentTo = derived.Address;
     }
 
@@ -118,20 +111,13 @@ public sealed class Payment
             throw new CPaymentConfigurationException($"{nameof(Payment)}.{nameof(SweepAsync)} => Master address is not configured.");
         }
 
-        var utxos = await FetchUtxosAsync(PaymentTo, cancellationToken).ConfigureAwait(false);
+        var utxos = await _provider.GetSpendableOutputsAsync(PaymentTo, cancellationToken).ConfigureAwait(false);
         if (utxos.Count == 0)
         {
             return;
         }
 
-        var tipHeight = await _provider.GetTipHeightAsync(cancellationToken).ConfigureAwait(false);
-
         var eligible = utxos
-            .Select(u => new
-            {
-                Utxo = u,
-                Confirmations = u.Status.BlockHeight is null ? 0 : CalculateConfirmations(u.Status.BlockHeight.Value, tipHeight)
-            })
             .Where(x => x.Confirmations >= sweep.MinConfirmations)
             .ToList();
 
@@ -140,7 +126,7 @@ public sealed class Payment
             return;
         }
 
-        var totalSats = eligible.Sum(x => x.Utxo.ValueSats);
+        var totalSats = eligible.Sum(x => x.Coin.Amount.Satoshi);
         var minSweepSats = ToSatoshis(sweep.MinSweepAmount);
 
         if (totalSats < minSweepSats)
@@ -150,34 +136,11 @@ public sealed class Payment
 
         var destination = BitcoinAddress.Create(_options.Wallet.MasterAddress, _nbitcoinNetwork);
 
-        var depositAddress = BitcoinAddress.Create(PaymentTo, _nbitcoinNetwork);
-        var depositScript = depositAddress.ScriptPubKey;
+        var coins = eligible.Select(x => x.Coin).ToArray();
 
-        var coins = eligible.Select(x =>
-            new Coin(
-                new OutPoint(new uint256(x.Utxo.TxId), (uint)x.Utxo.Vout),
-                new TxOut(Money.Satoshis(x.Utxo.ValueSats), depositScript)))
-            .ToArray();
+        var feeRate = await _provider.GetSweepFeeRateAsync(sweep.FeePolicy, cancellationToken).ConfigureAwait(false);
 
-        var satPerVbyte = await GetFeeRateAsync(sweep.FeePolicy).ConfigureAwait(false);
-        var feeRate = ToFeeRate(satPerVbyte);
-
-        var builder = _nbitcoinNetwork.CreateTransactionBuilder();
-        builder.OptInRBF = sweep.EnableRbf;
-
-        builder.AddCoins(coins);
-        builder.AddKeys(_depositKey);
-
-        builder.SendAll(destination);
-        builder.SendEstimatedFees(feeRate);
-
-        var tx = builder.BuildTransaction(sign: true);
-
-        if (!builder.Verify(tx, out var policyErrors))
-        {
-            throw new InvalidOperationException(
-                $"{nameof(Payment)}.{nameof(SweepAsync)} => Built transaction failed policy check: {FormatPolicyErrors(policyErrors)}");
-        }
+        var tx = _sweepBuilder.BuildSweep(_depositKey, eligible, destination, feeRate, sweep.EnableRbf);
 
         var sentToDestination = tx.Outputs
             .Where(o => o.ScriptPubKey == destination.ScriptPubKey)
@@ -188,8 +151,11 @@ public sealed class Payment
             return;
         }
 
-        await BroadcastAsync(tx.ToHex(), cancellationToken).ConfigureAwait(false);
+        await _provider.BroadcastAsync(tx.ToHex(), cancellationToken).ConfigureAwait(false);
     }
+
+    public Task<bool> IsAlreadySweptAsync(CancellationToken cancellationToken = default) =>
+        SweepDetectionService.WasSweptAsync(PaymentTo, _provider, cancellationToken);
 
     private async Task<PaymentVerificationResult> VerifyInternalAsync(
         int minConfirmations,
@@ -277,110 +243,6 @@ public sealed class Payment
         }
 
         return CalculateConfirmations(tx.Status.BlockHeight.Value, tipHeight);
-    }
-
-    private async Task<IReadOnlyList<EsploraUtxo>> FetchUtxosAsync(string address, CancellationToken cancellationToken)
-    {
-        var baseUrl = GetBaseEsploraUrl();
-        var url = $"{baseUrl}/address/{Uri.EscapeDataString(address)}/utxo";
-
-        using var response = await HttpClientService.Instance.GetAsync(url, cancellationToken).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
-
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        var utxos = await JsonSerializer.DeserializeAsync<List<EsploraUtxo>>(stream, JsonOptions, cancellationToken).ConfigureAwait(false);
-        return utxos ?? [];
-    }
-
-    private async Task BroadcastAsync(string txHex, CancellationToken cancellationToken)
-    {
-        var baseUrl = GetBaseEsploraUrl();
-        var url = $"{baseUrl}/tx";
-
-        using var content = new StringContent(txHex, Encoding.UTF8, "text/plain");
-        using var response = await HttpClientService.Instance.PostAsync(url, content, cancellationToken).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
-    }
-
-    private string GetBaseEsploraUrl()
-    {
-        return _options.Network switch
-        {
-            Utils.Network.Main => "https://blockstream.info/api",
-            Utils.Network.Test => "https://blockstream.info/testnet/api",
-            _ => throw new NotSupportedException($"{nameof(Payment)} => Unsupported network '{_options.Network}'.")
-        };
-    }
-
-    private static Task<double> GetFeeRateAsync(FeePolicy policy)
-    {
-        // sat/vbyte mapping (placeholder until you wire a real estimator)
-        var rate = policy switch
-        {
-            FeePolicy.Low => 1.0,
-            FeePolicy.Medium => 5.0,
-            FeePolicy.High => 10.0,
-            _ => throw new NotSupportedException($"{nameof(Payment)} => Unsupported fee policy '{policy}'.")
-        };
-
-        return Task.FromResult(rate);
-    }
-
-    private static FeeRate ToFeeRate(double satPerVbyte)
-    {
-        if (double.IsNaN(satPerVbyte) || double.IsInfinity(satPerVbyte) || satPerVbyte <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(satPerVbyte), "Fee rate must be > 0 sat/vbyte.");
-        }
-
-        var satPerKvb = (long)Math.Ceiling(satPerVbyte * 1000.0);
-        if (satPerKvb <= 0)
-        {
-            satPerKvb = 1;
-        }
-
-        return new FeeRate(Money.Satoshis(satPerKvb));
-    }
-
-    private static string FormatPolicyErrors(TransactionPolicyError[]? errors)
-    {
-        if (errors is null || errors.Length == 0)
-        {
-            return "Unknown policy error.";
-        }
-
-        static string Describe(TransactionPolicyError e)
-        {
-            var baseMsg = e.ToString();
-
-            return e switch
-            {
-                FeeTooLowPolicyError f =>
-                    $"{baseMsg} (fee={f.Fee}, expectedMin={f.ExpectedMinFee})",
-
-                FeeTooHighPolicyError f =>
-                    $"{baseMsg} (fee={f.Fee}, expectedMax={f.ExpectedMaxFee})",
-
-                DustPolicyError d =>
-                    $"{baseMsg} (value={d.Value}, dustThreshold={d.DustThreshold})",
-
-                TransactionSizePolicyError s =>
-                    $"{baseMsg} (actualSize={s.ActualSize}, maxSize={s.MaximumSize})",
-
-                OutputPolicyError o =>
-                    $"{baseMsg} (outputIndex={o.OutputIndex})",
-
-                InputPolicyError i =>
-                    $"{baseMsg} (inputIndex={i.InputIndex}, outpoint={i.OutPoint})",
-
-                DuplicateInputPolicyError di =>
-                    $"{baseMsg} (outpoint={di.OutPoint}, inputIndices=[{string.Join(",", di.InputIndices)}])",
-                _ =>
-                    baseMsg
-            };
-        }
-
-        return string.Join("; ", errors.Select(Describe));
     }
 
     private static long SumOutputsToAddress(EsploraTransaction tx, string address)

@@ -1,4 +1,6 @@
-﻿namespace CPayment.Services;
+﻿using CPayment.Public;
+
+namespace CPayment.Services;
 
 internal static class HttpClientService
 {
@@ -9,7 +11,7 @@ internal static class HttpClientService
             Timeout = TimeSpan.FromSeconds(10)
         };
 
-        client.DefaultRequestHeaders.UserAgent.ParseAdd($"CPayment/{CPayment.Version}");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd($"CPayment/{CPaymentExtensions.Version}");
         return client;
     });
 

@@ -5,7 +5,10 @@ using CPayment.Utils;
 using System.Net.Http.Json;
 using System.Text.Json;
 using FeeRate = NBitcoin.FeeRate;
+using NBitcoin;
 using System.Text;
+using Network = CPayment.Utils.Network;
+using NBitcoinNetwork = NBitcoin.Network;
 
 namespace CPayment.Providers
 {
@@ -14,6 +17,7 @@ namespace CPayment.Providers
         private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
         private string _baseUrl = "https://blockstream.info/api"; // Default mainnet
+        private NBitcoinNetwork _nbitcoinNetwork = NBitcoinNetwork.Main;
 
         public string Name => "Blockstream (Esplora)";
 
@@ -21,8 +25,15 @@ namespace CPayment.Providers
         {
             _baseUrl = network switch
             {
-                Network.Main => _baseUrl,
+                Network.Main => "https://blockstream.info/api",
                 Network.Test => "https://blockstream.info/testnet/api",
+                _ => throw new NotSupportedException($"{nameof(BlockStreamBitcoinProvider)}.{nameof(Configure)} => Unsupported network '{network}'.")
+            };
+
+            _nbitcoinNetwork = network switch
+            {
+                Network.Main => NBitcoinNetwork.Main,
+                Network.Test => NBitcoinNetwork.TestNet,
                 _ => throw new NotSupportedException($"{nameof(BlockStreamBitcoinProvider)}.{nameof(Configure)} => Unsupported network '{network}'.")
             };
         }
@@ -82,11 +93,11 @@ namespace CPayment.Providers
                 : tx;
         }
 
-        public async Task<IReadOnlyList<EsploraUtxo>> GetUtxosAsync(string address, CancellationToken cancellationToken = default)
+        public async Task<IReadOnlyList<SpendableOutput>> GetSpendableOutputsAsync(string address, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(address))
             {
-                throw new ArgumentException($"{nameof(BlockStreamBitcoinProvider)}.{nameof(GetUtxosAsync)} => Address must be provided.", nameof(address));
+                throw new ArgumentException($"{nameof(BlockStreamBitcoinProvider)}.{nameof(GetSpendableOutputsAsync)} => Address must be provided.", nameof(address));
             }
 
             var url = $"{_baseUrl}/address/{Uri.EscapeDataString(address)}/utxo";
@@ -96,7 +107,30 @@ namespace CPayment.Providers
 
             await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
             var utxos = await JsonSerializer.DeserializeAsync<List<EsploraUtxo>>(stream, JsonOptions, cancellationToken).ConfigureAwait(false);
-            return utxos ?? [];
+            if (utxos is null || utxos.Count == 0)
+            {
+                return Array.Empty<SpendableOutput>();
+            }
+
+            var tipHeight = await GetTipHeightAsync(cancellationToken).ConfigureAwait(false);
+            var depositAddress = BitcoinAddress.Create(address, _nbitcoinNetwork);
+            var depositScript = depositAddress.ScriptPubKey;
+
+            var outputs = new List<SpendableOutput>(utxos.Count);
+            foreach (var utxo in utxos)
+            {
+                var confirmations = utxo.Status.BlockHeight is null
+                    ? 0
+                    : CalculateConfirmations(utxo.Status.BlockHeight.Value, tipHeight);
+
+                var coin = new Coin(
+                    new OutPoint(new uint256(utxo.TxId), (uint)utxo.Vout),
+                    new TxOut(Money.Satoshis(utxo.ValueSats), depositScript));
+
+                outputs.Add(new SpendableOutput(coin, confirmations));
+            }
+
+            return outputs;
         }
 
         public async Task BroadcastAsync(string txHex, CancellationToken cancellationToken = default)
@@ -143,6 +177,16 @@ namespace CPayment.Providers
 
             static double? TryGet(Dictionary<string, double>? dict, string key) =>
                 dict is not null && dict.TryGetValue(key, out var v) ? v : null;
+        }
+
+        private static int CalculateConfirmations(int blockHeight, int tipHeight)
+        {
+            if (blockHeight <= 0 || tipHeight < blockHeight)
+            {
+                return 0;
+            }
+
+            return (tipHeight - blockHeight) + 1;
         }
     }
 }

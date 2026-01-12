@@ -120,20 +120,13 @@ public sealed class Payment
             throw new CPaymentConfigurationException($"{nameof(Payment)}.{nameof(SweepAsync)} => Master address is not configured.");
         }
 
-        var utxos = await _provider.GetUtxosAsync(PaymentTo, cancellationToken).ConfigureAwait(false);
+        var utxos = await _provider.GetSpendableOutputsAsync(PaymentTo, cancellationToken).ConfigureAwait(false);
         if (utxos.Count == 0)
         {
             return;
         }
 
-        var tipHeight = await _provider.GetTipHeightAsync(cancellationToken).ConfigureAwait(false);
-
         var eligible = utxos
-            .Select(u => new
-            {
-                Utxo = u,
-                Confirmations = u.Status.BlockHeight is null ? 0 : CalculateConfirmations(u.Status.BlockHeight.Value, tipHeight)
-            })
             .Where(x => x.Confirmations >= sweep.MinConfirmations)
             .ToList();
 
@@ -142,7 +135,7 @@ public sealed class Payment
             return;
         }
 
-        var totalSats = eligible.Sum(x => x.Utxo.ValueSats);
+        var totalSats = eligible.Sum(x => x.Coin.Amount.Satoshi);
         var minSweepSats = ToSatoshis(sweep.MinSweepAmount);
 
         if (totalSats < minSweepSats)
@@ -152,14 +145,7 @@ public sealed class Payment
 
         var destination = BitcoinAddress.Create(_options.Wallet.MasterAddress, _nbitcoinNetwork);
 
-        var depositAddress = BitcoinAddress.Create(PaymentTo, _nbitcoinNetwork);
-        var depositScript = depositAddress.ScriptPubKey;
-
-        var coins = eligible.Select(x =>
-            new Coin(
-                new OutPoint(new uint256(x.Utxo.TxId), (uint)x.Utxo.Vout),
-                new TxOut(Money.Satoshis(x.Utxo.ValueSats), depositScript)))
-            .ToArray();
+        var coins = eligible.Select(x => x.Coin).ToArray();
 
         var feeRate = await _provider.GetSweepFeeRateAsync(sweep.FeePolicy, cancellationToken).ConfigureAwait(false);
 

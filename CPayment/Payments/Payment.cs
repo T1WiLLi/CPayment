@@ -6,18 +6,12 @@ using CPayment.Public;
 using CPayment.Services;
 using CPayment.Utils;
 using NBitcoin;
-using NBitcoin.Policy;
-using System.Net.Http.Json;
-using System.Text;
-using System.Text.Json;
 
 namespace CPayment.Payments;
 
 public sealed class Payment
 {
     private const decimal SatoshisPerBtc = 100_000_000m;
-
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly long _amountSatoshis;
     private readonly CPaymentOptions _options;
@@ -251,48 +245,6 @@ public sealed class Payment
         }
 
         return CalculateConfirmations(tx.Status.BlockHeight.Value, tipHeight);
-    }
-
-    private string GetBaseEsploraUrl()
-    {
-        return _options.Network switch
-        {
-            Utils.Network.Main => "https://blockstream.info/api",
-            Utils.Network.Test => "https://blockstream.info/testnet/api",
-            _ => throw new NotSupportedException($"{nameof(Payment)} => Unsupported network '{_options.Network}'.")
-        };
-    }
-
-    private async Task<FeeRate> GetFeeRateAsync(FeePolicy policy, CancellationToken cancellationToken)
-    {
-        var url = $"{GetBaseEsploraUrl()}/fee-estimates";
-
-        Dictionary<string, double>? estimates;
-        try
-        {
-            estimates = await HttpClientService.Instance
-                .GetFromJsonAsync<Dictionary<string, double>>(url, cancellationToken: cancellationToken)
-                .ConfigureAwait(false);
-        }
-        catch
-        {
-            estimates = null;
-        }
-
-        double targetVbyte = policy switch
-        {
-            FeePolicy.High => TryGet(estimates, "2") ?? 10d,
-            FeePolicy.Medium => TryGet(estimates, "6") ?? 5d,
-            _ => TryGet(estimates, "12") ?? 1d
-        };
-
-        var satPerKvb = (long)Math.Ceiling(targetVbyte * 1000d);
-        if (satPerKvb < 1) satPerKvb = 1;
-
-        return new FeeRate(Money.Satoshis(satPerKvb));
-
-        static double? TryGet(Dictionary<string, double>? dict, string key) =>
-            dict is not null && dict.TryGetValue(key, out var v) ? v : null;
     }
 
     private static long SumOutputsToAddress(EsploraTransaction tx, string address)

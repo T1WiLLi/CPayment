@@ -24,6 +24,7 @@ public sealed class Payment
     private readonly IProvider _provider;
     private readonly Key _depositKey;
     private readonly NBitcoin.Network _nbitcoinNetwork;
+    private readonly ISweepBuilder _sweepBuilder;
 
     public Payment(decimal amount, PaymentType currency, PaymentMetadata metadata)
     {
@@ -48,6 +49,7 @@ public sealed class Payment
         var derived = AddressDerivationService.DeriveDeposit(_options, metadata);
         _depositKey = derived.PrivateKey;
         _nbitcoinNetwork = derived.Network;
+        _sweepBuilder = new BitcoinSweepBuilder(_nbitcoinNetwork);
         PaymentTo = derived.Address;
     }
 
@@ -149,22 +151,7 @@ public sealed class Payment
 
         var feeRate = await _provider.GetSweepFeeRateAsync(sweep.FeePolicy, cancellationToken).ConfigureAwait(false);
 
-        var builder = _nbitcoinNetwork.CreateTransactionBuilder();
-        builder.OptInRBF = sweep.EnableRbf;
-
-        builder.AddCoins(coins);
-        builder.AddKeys(_depositKey);
-
-        builder.SendAll(destination);
-        builder.SendEstimatedFees(feeRate);
-
-        var tx = builder.BuildTransaction(sign: true);
-
-        if (!builder.Verify(tx, out var policyErrors))
-        {
-            throw new InvalidOperationException(
-                $"{nameof(Payment)}.{nameof(SweepAsync)} => Built transaction failed policy check: {FormatPolicyErrors(policyErrors)}");
-        }
+        var tx = _sweepBuilder.BuildSweep(_depositKey, eligible, destination, feeRate, sweep.EnableRbf);
 
         var sentToDestination = tx.Outputs
             .Where(o => o.ScriptPubKey == destination.ScriptPubKey)
@@ -306,47 +293,6 @@ public sealed class Payment
 
         static double? TryGet(Dictionary<string, double>? dict, string key) =>
             dict is not null && dict.TryGetValue(key, out var v) ? v : null;
-    }
-
-    private static string FormatPolicyErrors(TransactionPolicyError[]? errors)
-    {
-        if (errors is null || errors.Length == 0)
-        {
-            return "Unknown policy error.";
-        }
-
-        static string Describe(TransactionPolicyError e)
-        {
-            var baseMsg = e.ToString();
-
-            return e switch
-            {
-                FeeTooLowPolicyError f =>
-                    $"{baseMsg} (fee={f.Fee}, expectedMin={f.ExpectedMinFee})",
-
-                FeeTooHighPolicyError f =>
-                    $"{baseMsg} (fee={f.Fee}, expectedMax={f.ExpectedMaxFee})",
-
-                DustPolicyError d =>
-                    $"{baseMsg} (value={d.Value}, dustThreshold={d.DustThreshold})",
-
-                TransactionSizePolicyError s =>
-                    $"{baseMsg} (actualSize={s.ActualSize}, maxSize={s.MaximumSize})",
-
-                OutputPolicyError o =>
-                    $"{baseMsg} (outputIndex={o.OutputIndex})",
-
-                InputPolicyError i =>
-                    $"{baseMsg} (inputIndex={i.InputIndex}, outpoint={i.OutPoint})",
-
-                DuplicateInputPolicyError di =>
-                    $"{baseMsg} (outpoint={di.OutPoint}, inputIndices=[{string.Join(",", di.InputIndices)}])",
-                _ =>
-                    baseMsg
-            };
-        }
-
-        return string.Join("; ", errors.Select(Describe));
     }
 
     private static long SumOutputsToAddress(EsploraTransaction tx, string address)
